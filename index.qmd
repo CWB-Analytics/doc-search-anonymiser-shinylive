@@ -1,0 +1,39 @@
+---
+title: "Document Search Output Anonymiser"
+filters:
+  - shinylive
+format:
+  html:
+    page-layout: full
+    embed-resources: false
+---
+
+```{shinylive-r}
+#| standalone: true
+#| viewerHeight: 800
+
+library(shiny)
+
+ui <- fluidPage(
+  sidebarLayout(
+    sidebarPanel(
+      fileInput("file_upload", "Step 1: Choose a CSV file", accept = ".csv")
+    ),
+    mainPanel(
+      div(
+        style = "overflow-x:auto; overflow-y:auto; max-height:650px;",
+        tableOutput("main_table")
+      )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  output$main_table <- renderTable({
+    req(input$file_upload)
+    read.csv(input$file_upload$datapath) |> head()
+  })
+}
+
+shinyApp(ui, server)
+```

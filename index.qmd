@@ -13,82 +13,77 @@ format:
 #| viewerHeight: 800
 
 library(shiny)
-library(stringdist)
-
-# ----------------------------
-# Helper functions
-# ----------------------------
 
 upload_original_data <- function(selected_file) {
-  if (file.size(selected_file) == 0) {
-    stop("The selected file is empty.")
-  }
-
-  original_data <- read.csv(selected_file, check.names = TRUE)
-
-  if (nrow(original_data) == 0) {
-    stop("The selected file has no data rows.")
-  }
-
-  text_cols <- sapply(original_data, is.character)
-
-  if (sum(text_cols) < 2) {
-    stop("The file must contain at least two text columns.")
-  }
-
-  original_data
+    
+    if (file.size(selected_file) == 0) {
+        stop("The selected file is empty and contains no data. Please upload alternative file")
+    }
+    
+    original_data <- read.csv(file = selected_file, check.names = TRUE)
+    
+    if (nrow(original_data) == 0) {
+        stop("The selected file contains column names but no data rows. Please upload alternative file")
+    }
+    
+    text_cols <- sapply(original_data, is.character)
+    
+    if (sum(text_cols) < 2) {
+        stop("The selected file only contains one valid column for matching. Please upload alternative file")
+    }
+    
+    return(original_data)
 }
-
 
 create_name_keys <- function(original_names, col_name) {
-  original_names[is.na(original_names)] <- ""
-
-  x <- original_names
-  x <- gsub("([a-z])([A-Z])", "\\1 \\2", x)
-  x <- gsub("-", " ", x)
-  x <- tolower(x)
-  x <- gsub("\\s*['\"].*?['\"]\\s*", "", x)
-  x <- gsub("[[:punct:]]", "", x)
-  x <- trimws(x)
-  x <- gsub("\\s+", " ", x)
-  x <- gsub("(?i)^(master|mrs|mr|miss|ms|dr)\\s+", "", x)
-
-  if (!is.null(col_name)) {
-    x[x == ""] <- paste0("x ", col_name)
-  }
-
-  words <- strsplit(x, "\\s+")
-  first_initial <- vapply(words, function(w) substr(w[1], 1, 1), character(1))
-  last_word     <- vapply(words, function(w) w[length(w)], character(1))
-
-  paste0(first_initial, last_word)
+    
+    original_names[is.na(original_names)] <- ""
+    
+    step_split_case    <- gsub("([a-z])([A-Z])", "\\1 \\2", original_names)
+    step_split_hyphen  <- gsub("-", " ", step_split_case)
+    step_lower         <- tolower(step_split_hyphen)
+    step_no_quotes     <- gsub("\\s*['\"].*?['\"]\\s*", "", step_lower)
+    step_no_punct      <- gsub("[[:punct:]]", "", step_no_quotes)
+    step_trimmed       <- trimws(step_no_punct)
+    step_single_spaces <- gsub("\\s+", " ", step_trimmed)
+    standardised_names <- gsub("(?i)^(master|mrs|mr|miss|ms|dr)\\s+",
+                               "", step_single_spaces)
+    
+    if (!is.null(col_name)) {
+        placeholder <- paste0("x ", col_name)
+        standardised_names[standardised_names == ""] <- placeholder
+    }
+    
+    words <- strsplit(standardised_names, "\\s+")
+    
+    first_initial <- vapply(words, function(x)
+        substr(x[1], 1, 1), FUN.VALUE = character(1))
+    
+    last_word <- vapply(words, function(x) 
+        x[length(x)], FUN.VALUE = character(1))
+    
+    return(paste0(first_initial, last_word))
 }
 
-
-calculate_distance_between_name_key_pairs <- function(df,
-                                                      patient_key_col = "patient_key",
-                                                      sender_key_col  = "sender_key") {
-  df$distance <- stringdist::stringdist(
-    df[[patient_key_col]],
-    df[[sender_key_col]],
-    method = "osa"
-  )
-  df
+calculate_distance_between_name_key_pairs <- function(df, patient_col, sender_col) {
+    distances <- stringdist::stringdist(df[[patient_col]], df[[sender_col]], method = "osa")
+    df$distance <- distances
+    return(df)
 }
-
 
 filter_by_threshold <- function(df, threshold) {
-  df[df$distance >= threshold, , drop = FALSE]
+    df[df$distance >= threshold, , drop = FALSE]
 }
 
-# ----------------------------
-# UI
-# ----------------------------
 
 ui <- fluidPage(
-	
-	tags$head(
-  tags$script(HTML("
+	titlePanel(tagList(
+		tags$h1("SystmOne Document Search Tool Output Anonymiser"),
+		tags$hr()
+	)),
+	tags$head(tags$script(
+		HTML(
+			"
     function downloadCSV(csvText, filename) {
       const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -107,167 +102,255 @@ ui <- fluidPage(
     Shiny.addCustomMessageHandler('downloadCSV', function(message) {
       downloadCSV(message.csv, message.filename);
     });
-  "))
-),
-
-
-  titlePanel(
-    tagList(
-      tags$h2("Document Search Output Anonymiser"),
-      tags$hr()
-    )
-  ),
-
+  "
+		)
+	)),
   sidebarLayout(
-
-    sidebarPanel(
-      fileInput(
-        "file_upload",
-        "Step 1: Choose a CSV file",
-        accept = ".csv"
-      ),
-
-      tags$br(),
-
-      uiOutput("patient_column_selector"),
-      uiOutput("sender_column_selector"),
-
-      tags$br(),
-
-      uiOutput("process_button"),
-
-      tags$br(),
-
-      uiOutput("post_process_ui")
-    ),
-
-    mainPanel(
-      uiOutput("table_title"),
-      tableOutput("main_table")
-    )
+  	sidebarPanel(
+  		# Step 1: Upload CSV
+  		fileInput("file_upload", "Step 1: Choose a CSV file", accept = c(".csv")),
+  		
+  		# Early reset button
+  		div(style = "text-align: right; margin-top: 10px; margin-bottom: 20px;", 
+  			actionButton("early_reset", "Re-upload File")),
+  		
+  		# Step 2 & 3: Column selectors
+  		uiOutput("patient_column_selector"),
+  		uiOutput("sender_column_selector"),
+  		
+  		# Step 4: Process button
+  		uiOutput("process_data_button"),
+  		
+  		tags$br(),
+  		
+  		# Step 5-7: Post-processing controls
+  		uiOutput("post_process_ui"),
+  		
+  		tags$br(),
+  		
+  		# Step 8: Final reset button
+  		uiOutput("reset_button")
+  	),
+  	mainPanel(uiOutput("table_title"), tableOutput("main_table"))
   )
 )
 
-# ----------------------------
-# Server
-# ----------------------------
-
-# ----------------------------
-# Server: Processing + JS download
-# ----------------------------
-
 server <- function(input, output, session) {
-
-  # Reactive: uploaded data
-  original_data <- reactive({
-    req(input$file_upload)
-    tryCatch(
-      upload_original_data(input$file_upload$datapath),
-      error = function(e) {
-        showNotification(e$message, type = "error", duration = 10)
-        NULL
-      }
+    
+    # --- Step 1: Load CSV ---
+    original_data <- reactive({
+        req(input$file_upload)
+        tryCatch(
+            upload_original_data(input$file_upload$datapath),
+            error = function(e) {
+                showNotification(e$message, type = "error", duration = 10)
+                NULL
+            }
+        )
+    })
+    
+    # Step 2: Patient column
+    output$patient_column_selector <- renderUI({
+        df <- original_data()
+        # req(df)
+        char_cols <- names(df)[sapply(df, is.character)]
+        selectInput(
+            "patient_column",
+            "Step 2: Select Patient Column",
+            choices  = c("— Select column —" = "", char_cols),
+            selected = ""
+        )
+    })
+    
+    # Step 3: Sender column
+    output$sender_column_selector <- renderUI({
+        req(input$patient_column != "")
+        df <- original_data()
+        char_cols <- names(df)[sapply(df, is.character)]
+        sender_choices <- setdiff(char_cols, input$patient_column)
+        selectInput(
+            "sender_column",
+            "Step 3: Select Sender Column",
+            choices  = c("— Select column —" = "", sender_choices),
+            selected = ""
+        )
+    })
+    
+    # Step 4: Process button
+    output$process_data_button <- renderUI({
+        req(input$sender_column != "")
+        tagList(
+            tags$label(style = "font-weight: 600;", "Step 4: Sort data by similarity between patient and sender names"),
+            tags$br(),
+            actionButton("process_data", "Click Here")
+        )
+    })
+    
+    # Step 5-7: Post-processing
+    output$post_process_ui <- renderUI({
+        req(input$process_data)
+        tagList(
+            sliderInput("matching_threshold", "Step 5: Adjust slider until no patient names remain as sender",
+                        min = 0, max = 5, value = 0, step = 1),
+            tags$br(),
+            uiOutput("anonymise_button"),
+            tags$br(),
+            uiOutput("download_button")
+        )
+    })
+    
+    # Step 6: Anonymise
+    output$anonymise_button <- renderUI({
+        # req(input$matching_threshold)
+        tagList(
+            tags$label(style = "font-weight: 600;", "Step 6: Anonymise data"),
+            tags$br(),
+            actionButton("anonymise_data", "Anonymise")
+        )
+    })
+    
+    # Step 7: Download
+    output$download_button <- renderUI({
+        req(input$anonymise_data)
+        tagList(
+            tags$label(style = "font-weight: 600;", "Step 7: Download Anonymised CSV"),
+            tags$br(),
+            actionButton("download_anonymised_js", "Download")
+        )
+    })
+    
+    # --- Processing logic ---
+    processed_data <- eventReactive(input$process_data, {
+        if (input$patient_column == input$sender_column) {
+            showNotification("Patient and sender columns cannot be the same.", type = "error")
+            return(NULL)
+        }
+        df <- data.frame(
+            row_id = seq_len(nrow(original_data())),
+            patient = original_data()[[input$patient_column]],
+            sender  = original_data()[[input$sender_column]],
+            stringsAsFactors = FALSE
+        )
+        df$patient_key <- create_name_keys(df$patient, "patient")
+        df$sender_key  <- create_name_keys(df$sender, "sender")
+        df <- calculate_distance_between_name_key_pairs(df, "patient_key", "sender_key")
+        df
+    })
+    
+    processed_sorted <- reactive({
+        req(processed_data())
+        processed_data()[order(processed_data()$distance), , drop = FALSE]
+    })
+    
+    filtered_data <- reactive({
+        req(processed_sorted(), input$matching_threshold)
+        filter_by_threshold(processed_sorted(), input$matching_threshold)
+    })
+    
+    anonymised_data <- reactive({
+        req(filtered_data(), original_data(), input$patient_column)
+        keep_rows <- filtered_data()$row_id
+        df <- original_data()[keep_rows, , drop = FALSE]
+        if (input$patient_column %in% names(df)) df[[input$patient_column]] <- NULL
+        df
+    })
+    
+    observeEvent(input$download_anonymised_js, {
+  req(anonymised_data())
+  
+  csv_text <- paste(
+    capture.output(
+      write.csv(anonymised_data(), row.names = FALSE)
+    ),
+    collapse = "\n"
+  )
+  
+  filename <- paste0(
+    tools::file_path_sans_ext(input$file_upload$name),
+    "_anonymised.csv"
+  )
+  
+  session$sendCustomMessage(
+    "downloadCSV",
+    list(csv = csv_text, filename = filename)
+  )
+})
+    
+    # Table title
+    output$table_title <- renderUI({
+        if (is.null(input$file_upload)) NULL
+        else if (is.null(input$process_data) || input$process_data == 0)
+            tags$h4("Preview of uploaded data")
+        else if (is.null(input$anonymise_data) || input$anonymise_data == 0)
+            tags$h4("Data sorted by similarity between patient and sender names (high → low)")
+        else
+            tags$h4("Preview of anonymised data")
+    })
+    
+    # Main table
+    output$main_table <- renderTable({
+        if (is.null(input$process_data) || input$process_data == 0) head(original_data(), 50)
+        else if (is.null(input$anonymise_data) || input$anonymise_data == 0) {
+            df <- filtered_data()
+            df <- df[order(df$distance), , drop = FALSE]
+            df[, c("patient", "sender")]
+        } else anonymised_data()
+    })
+    
+    # Download
+    output$download_anonymised <- downloadHandler(
+        filename = function() {
+            orig <- tools::file_path_sans_ext(input$file_upload$name)
+            paste0(orig, "_anonymised.csv")
+        },
+        content = function(file) write.csv(anonymised_data(), file, row.names = FALSE)
     )
-  })
-
-  # Step 2: Patient column selector
-  output$patient_column_selector <- renderUI({
-    df <- original_data()
-    req(df)
-    char_cols <- names(df)[sapply(df, is.character)]
-    selectInput(
-      "patient_col",
-      "Step 2: Select Patient Column",
-      choices = c("— Select column —" = "", char_cols),
-      selected = ""
-    )
-  })
-
-  # Step 3: Sender column selector
-  output$sender_column_selector <- renderUI({
-    req(input$patient_col != "")
-    df <- original_data()
-    char_cols <- names(df)[sapply(df, is.character)]
-    sender_choices <- setdiff(char_cols, input$patient_col)
-    selectInput(
-      "sender_col",
-      "Step 3: Select Sender Column",
-      choices = c("— Select column —" = "", sender_choices),
-      selected = ""
-    )
-  })
-
-  # Step 4: Process button
-  output$process_button <- renderUI({
-    req(input$sender_col != "")
-    actionButton("process", "Step 4: Process")
-  })
-
-  # Reactive: Processed data
-  processed_data <- eventReactive(input$process, {
-    df <- original_data()
-    out <- data.frame(
-      row_id  = seq_len(nrow(df)),
-      patient = df[[input$patient_col]],
-      sender  = df[[input$sender_col]],
-      stringsAsFactors = FALSE
-    )
-    out$patient_key <- create_name_keys(out$patient, "patient")
-    out$sender_key  <- create_name_keys(out$sender, "sender")
-    calculate_distance_between_name_key_pairs(out)
-  })
-
-  # Step 5: Threshold slider and JS download button
-  output$post_process_ui <- renderUI({
-    req(processed_data())
-    tagList(
-      sliderInput("threshold", "Step 5: Matching threshold", 0, 5, 0, 1),
-      actionButton("download_js", "Step 6: Download anonymised CSV")
-    )
-  })
-
-  # Reactive: Filtered/anonymised data
-  anonymised_data <- reactive({
-    req(processed_data(), input$threshold)
-    filtered <- filter_by_threshold(processed_data(), input$threshold)
-    keep <- filtered$row_id
-    df <- original_data()[keep, , drop = FALSE]
-    df[[input$patient_col]] <- NULL
-    df
-  })
-
-  # Table title
-  output$table_title <- renderUI({
-    if (is.null(input$process)) h4("Preview of uploaded data")
-    else h4("Processed data preview")
-  })
-
-  # Table preview
-  output$main_table <- renderTable({
-    if (is.null(input$process)) head(original_data(), 50)
-    else head(anonymised_data(), 50)
-  })
-
-  # ----------------------------
-  # JavaScript download
-  # ----------------------------
-  observeEvent(input$download_js, {
-    csv_text <- paste(
-      capture.output(
-        write.csv(anonymised_data(), row.names = FALSE)
-      ),
-      collapse = "\n"
-    )
-    filename <- paste0(tools::file_path_sans_ext(input$file_upload$name),
-                       "_anonymised.csv")
-    session$sendCustomMessage(
-      "downloadCSV",
-      list(csv = csv_text, filename = filename)
-    )
-  })
+    
+    # --- Step 8: Final reset button ---
+    output$reset_button <- renderUI({
+        req(input$anonymise_data)
+        tagList(
+            tags$label(style = "font-weight: 600;", "Step 8: Anonymise Next File"),
+            tags$br(),
+            actionButton("reset_button_click", "Next File")
+        )
+    })
+    
+    # Nuclear reset with confirmation (final reset)
+    observeEvent(input$reset_button_click, {
+        showModal(modalDialog(
+            title = "Confirm Reset",
+            "This will clear all data and start over. Are you sure?",
+            footer = tagList(
+                modalButton("Cancel"),
+                actionButton("confirm_reset", "Yes, Reset")
+            )
+        ))
+    })
+    
+    observeEvent(input$confirm_reset, {
+        removeModal()
+        session$reload()
+    })
+    
+    # --- Early reset button (before processing) ---
+    observeEvent(input$early_reset, {
+        showModal(modalDialog(
+            title = "Confirm Reset",
+            "This will clear uploaded file and all selections. Are you sure?",
+            footer = tagList(
+                modalButton("Cancel"),
+                actionButton("confirm_early_reset", "Yes, Reset")
+            )
+        ))
+    })
+    
+    observeEvent(input$confirm_early_reset, {
+        removeModal()
+        session$reload()
+    })
+    
 }
-
-
 
 shinyApp(ui, server)
 

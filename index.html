@@ -72,10 +72,11 @@ ul.task-list li input[type="checkbox"] {
 #|   shinylive does not work in self-contained HTML documents.
 #|   Please set `embed-resources: false` in your metadata.
 #| standalone: true
-#| viewerHeight: 800
+#| viewerHeight: 1200
 
 library(shiny)
 
+# HELPER FUNCTIONS ####
 upload_original_data &lt;- function(selected_file) {
     
     if (file.size(selected_file) == 0) {
@@ -137,37 +138,43 @@ filter_by_threshold &lt;- function(df, threshold) {
     df[df$distance &gt;= threshold, , drop = FALSE]
 }
 
+download_csv_js &lt;- function() {
+  tags$head(
+    tags$script(
+      HTML(
+        "
+        function downloadCSV(csvText, filename) {
+          const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+
+          const link = document.createElement('a');
+          link.setAttribute('href', url);
+          link.setAttribute('download', filename);
+
+          document.body.appendChild(link);
+          link.click();
+
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+
+        Shiny.addCustomMessageHandler('downloadCSV', function(message) {
+          downloadCSV(message.csv, message.filename);
+        });
+        "
+      )
+    )
+  )
+}
+
+
+
+# USER INTERFACE (UI) ####
 
 ui &lt;- fluidPage(
-    titlePanel(tagList(
-        tags$h1("SystmOne Document Search Tool Output Anonymiser"),
-        tags$hr()
-    )),
-    tags$head(tags$script(
-        HTML(
-            "
-    function downloadCSV(csvText, filename) {
-      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
 
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename);
-
-      document.body.appendChild(link);
-      link.click();
-
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }
-
-    Shiny.addCustomMessageHandler('downloadCSV', function(message) {
-      downloadCSV(message.csv, message.filename);
-    });
-  "
-        )
-    )),
-  sidebarLayout(
+    download_csv_js(),
+    sidebarLayout(
     sidebarPanel(
         # Step 1: Upload CSV
         fileInput("file_upload", "Step 1: Choose a CSV file", accept = c(".csv")),
@@ -196,6 +203,9 @@ ui &lt;- fluidPage(
     mainPanel(uiOutput("table_title"), tableOutput("main_table"))
   )
 )
+
+
+# SERVER ####
 
 server &lt;- function(input, output, session) {
     

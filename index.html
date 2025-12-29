@@ -200,7 +200,11 @@ ui &lt;- fluidPage(
         # Step 8: Final reset button
         uiOutput("reset_button")
     ),
-    mainPanel(uiOutput("table_title"), tableOutput("main_table"))
+    mainPanel(
+            uiOutput("table_title"), 
+            div(
+                style = "height: calc(100vh - 120px); overflow-y: auto;",
+                tableOutput("main_table")))
   )
 )
 

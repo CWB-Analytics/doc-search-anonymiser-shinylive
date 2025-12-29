@@ -16,6 +16,7 @@ execute:
 #| viewerHeight: 1200
 
 library(shiny)
+library(DT)
 
 # HELPER FUNCTIONS ####
 upload_original_data <- function(selected_file) {
@@ -77,6 +78,20 @@ calculate_distance_between_name_key_pairs <- function(df, patient_col, sender_co
 
 filter_by_threshold <- function(df, threshold) {
     df[df$distance >= threshold, , drop = FALSE]
+}
+
+make_scrolling_table <- function(table) {
+    
+    DT::datatable(
+        table,
+        rownames = TRUE,
+        options = list(
+            scrollY = "600px",
+            scrollX = TRUE,
+            paging = FALSE,
+            dom = "t"
+        )
+    )
 }
 
 download_csv_js <- function() {
@@ -143,9 +158,7 @@ ui <- fluidPage(
   	),
   	mainPanel(
             uiOutput("table_title"), 
-            div(
-                style = "height: calc(100vh - 120px); overflow-y: auto;",
-                tableOutput("main_table")))
+            DT::DTOutput("main_table"))
   )
 )
 
@@ -305,13 +318,20 @@ server <- function(input, output, session) {
     })
     
     # Main table
-    output$main_table <- renderTable({
-        if (is.null(input$process_data) || input$process_data == 0) head(original_data(), 50)
+    output$main_table <- DT::renderDT({
+        if (is.null(input$process_data) || input$process_data == 0) 
+        
+            make_scrolling_table(head(original_data(), 50))
+        
         else if (is.null(input$anonymise_data) || input$anonymise_data == 0) {
             df <- filtered_data()
             df <- df[order(df$distance), , drop = FALSE]
-            df[, c("patient", "sender")]
-        } else anonymised_data()
+            df <- df[, c("patient", "sender")]
+            
+            make_scrolling_table(df)
+            
+        } else make_scrolling_table(anonymised_data())
+
     })
     
     # Download
